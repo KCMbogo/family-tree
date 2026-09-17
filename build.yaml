@@ -1,0 +1,14 @@
+targets:
+  $default:
+    builders:
+      drift_dev:
+        options:
+          # Store timestamps as ISO-8601 text instead of unix seconds.
+          #
+          # Claim ordering is the core of the event model: "latest claim wins".
+          # Second-granularity timestamps would make two edits made moments
+          # apart indistinguishable, so the fold would have to fall back to the
+          # id tiebreaker and could pick the *older* value. Text storage keeps
+          # microsecond precision, and sorts correctly lexicographically.
+          store_date_time_values_as_text: true
+          named_parameters: true
