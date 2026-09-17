@@ -1,7 +1,7 @@
 import '../models/person.dart';
 import '../models/relationship.dart';
 
-enum TimelineEventKind { birth, marriage, child, death }
+enum TimelineEventKind { birth, marriage, death }
 
 /// How a person entered the family, which is what a reader years from now
 /// needs in order to place a name they have never heard.
@@ -110,10 +110,18 @@ abstract final class TimelineBuilder {
       spousesOf.putIfAbsent(r.personBId!, () => []).add(r.personAId!);
     }
 
+    // How each couple's marriage is described, so a birth can note the
+    // parents' standing without emitting a second event for it.
+    final marriedTo = <String, Relationship>{};
+    for (final r in usable) {
+      if (r.type != RelationshipType.spouseOf) continue;
+      marriedTo['${r.personAId}|${r.personBId}'] = r;
+      marriedTo['${r.personBId}|${r.personAId}'] = r;
+    }
+
     final entries = <TimelineEntry>[
-      ..._births(byId, parentsOf, spousesOf),
+      ..._births(byId, parentsOf, spousesOf, marriedTo),
       ..._marriages(byId, usable),
-      ..._childArrivals(byId, usable, parentsOf),
       ..._deaths(byId),
     ];
 
@@ -141,14 +149,16 @@ abstract final class TimelineBuilder {
     Map<String, Person> byId,
     Map<String, List<String>> parentsOf,
     Map<String, List<String>> spousesOf,
+    Map<String, Relationship> marriedTo,
   ) sync* {
     for (final person in byId.values) {
       if (person.birthYearRaw == null) continue;
 
-      final parents = (parentsOf[person.id] ?? const <String>[])
-          .map((id) => byId[id]?.displayName)
-          .whereType<String>()
+      final parentPeople = (parentsOf[person.id] ?? const <String>[])
+          .map((id) => byId[id])
+          .whereType<Person>()
           .toList();
+      final parents = parentPeople.map((p) => p.displayName).toList();
 
       final spouses = (spousesOf[person.id] ?? const <String>[])
           .map((id) => byId[id]?.displayName)
@@ -169,7 +179,10 @@ abstract final class TimelineBuilder {
         kind: TimelineEventKind.birth,
         title: '${person.displayName} was born',
         detail: switch (entry) {
-          FamilyEntry.born => 'to ${_join(parents)}',
+          // The parents' standing belongs on the birth itself. Emitting it as
+          // a separate "they had a son" event restated the same fact twice.
+          FamilyEntry.born =>
+            'to ${_join(parents)}${_standing(parentPeople, marriedTo)}',
           FamilyEntry.marriedIn =>
             'later married ${_join(spouses)}, joining the family',
           FamilyEntry.founder => 'married ${_join(spouses)}',
@@ -251,48 +264,6 @@ abstract final class TimelineBuilder {
     }
   }
 
-  /// A couple's children, told from the parents' side.
-  ///
-  /// The same birth already appears as the child's own entry; this is the
-  /// other half of the story — "and then they had a daughter" — which is what
-  /// makes a marriage read as the start of a family rather than an endpoint.
-  static Iterable<TimelineEntry> _childArrivals(
-    Map<String, Person> byId,
-    List<Relationship> relationships,
-    Map<String, List<String>> parentsOf,
-  ) sync* {
-    final marriedTo = <String, Relationship>{};
-    for (final r in relationships) {
-      if (r.type != RelationshipType.spouseOf) continue;
-      marriedTo['${r.personAId}|${r.personBId}'] = r;
-      marriedTo['${r.personBId}|${r.personAId}'] = r;
-    }
-
-    for (final entry in parentsOf.entries) {
-      final child = byId[entry.key];
-      if (child == null || child.birthYearRaw == null) continue;
-
-      final parents = entry.value
-          .map((id) => byId[id])
-          .whereType<Person>()
-          .toList();
-      if (parents.isEmpty) continue;
-
-      final names = parents.map((p) => p.displayName).toList();
-      final relation = _parentRelation(parents, marriedTo);
-
-      yield TimelineEntry(
-        kind: TimelineEventKind.child,
-        title: '${_join(names)} had ${_childNoun(child)}, '
-            '${child.displayName}',
-        detail: relation,
-        entityId: child.id,
-        year: child.birthYear,
-        yearLabel: child.birthYearRaw,
-      );
-    }
-  }
-
   static Iterable<TimelineEntry> _deaths(Map<String, Person> byId) sync* {
     for (final person in byId.values) {
       if (!person.isDeceased) continue;
@@ -307,27 +278,22 @@ abstract final class TimelineBuilder {
     }
   }
 
-  /// Flags a birth outside the recorded marriage, without editorialising.
-  static String? _parentRelation(
+  /// Notes the parents' standing, appended to a birth.
+  ///
+  /// Kept factual: it reports what was recorded, and says nothing at all when
+  /// the ordinary case (a married couple) applies.
+  static String _standing(
     List<Person> parents,
     Map<String, Relationship> marriedTo,
   ) {
-    if (parents.length == 1) return 'recorded with one parent';
-    if (parents.length != 2) return null;
+    if (parents.length == 1) return ' (one parent recorded)';
+    if (parents.length != 2) return '';
 
-    final match = marriedTo['${parents[0].id}|${parents[1].id}'];
-    if (match == null) return 'not recorded as married';
-    if (match.marriageYearRaw != null) {
-      return 'married ${match.marriageYearRaw}';
-    }
-    return null;
+    final match = marriedTo['${parents[0].id}|${parents[1].id}'] ??
+        marriedTo['${parents[1].id}|${parents[0].id}'];
+    if (match == null) return ' (not recorded as married)';
+    return '';
   }
-
-  static String _childNoun(Person child) => switch (child.gender) {
-        Gender.male => 'a son',
-        Gender.female => 'a daughter',
-        _ => 'a child',
-      };
 
   /// `a`, `a and b`, `a, b and c`.
   static String _join(List<String> names) {

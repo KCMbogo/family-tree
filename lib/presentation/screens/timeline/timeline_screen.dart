@@ -121,8 +121,6 @@ class _TimelineTile extends StatelessWidget {
       TimelineEventKind.birth => (Icons.child_care_outlined, scheme.primary),
       TimelineEventKind.marriage =>
         (Icons.favorite_outline, scheme.tertiary),
-      TimelineEventKind.child =>
-        (Icons.family_restroom_outlined, scheme.secondary),
       TimelineEventKind.death =>
         (Icons.local_florist_outlined, scheme.onSurfaceVariant),
     };

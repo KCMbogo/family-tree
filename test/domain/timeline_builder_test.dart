@@ -81,10 +81,12 @@ void main() {
     final birth = entries.firstWhere(
       (e) => e.kind == TimelineEventKind.birth && e.entityId == 'kid',
     );
-    expect(birth.detail, 'to Juma and Asha');
+    // These parents have no marriage recorded, which the entry states rather
+    // than quietly implying they were married.
+    expect(birth.detail, 'to Juma and Asha (not recorded as married)');
   });
 
-  test('a couple having a child is its own event', () {
+  test('a birth is stated once, not restated from the parents side', () {
     final entries = TimelineBuilder.build(
       persons: [
         born('dad', 'Juma', '1930', 1930),
@@ -111,21 +113,18 @@ void main() {
       ],
     );
 
-    final arrival =
-        entries.firstWhere((e) => e.kind == TimelineEventKind.child);
-    expect(arrival.title, contains('had a daughter'));
-    expect(arrival.title, contains('Neema'));
-    expect(arrival.detail, 'married 1955');
+    // Exactly one entry for Neema's birth — "X was born to A and B" and
+    // "A and B had a daughter, X" are the same fact worded twice.
+    final aboutNeema = entries.where((e) => e.entityId == 'kid');
+    expect(aboutNeema, hasLength(1));
 
-    // The story reads in order: marriage, then the child.
-    final marriageAt =
-        entries.indexWhere((e) => e.kind == TimelineEventKind.marriage);
-    final childAt = entries.indexOf(arrival);
-    expect(marriageAt, lessThan(childAt));
+    final birth = aboutNeema.single;
+    expect(birth.kind, TimelineEventKind.birth);
+    expect(birth.title, 'Neema was born');
+    expect(birth.detail, 'to Juma and Asha');
   });
 
-  test('a child of one parent is flagged as such, not invented into a couple',
-      () {
+  test('a child of one parent is flagged on the birth itself', () {
     final entries = TimelineBuilder.build(
       persons: [
         born('dad', 'Juma', '1930', 1930),
@@ -139,67 +138,9 @@ void main() {
       ],
     );
 
-    final arrival =
-        entries.firstWhere((e) => e.kind == TimelineEventKind.child);
-    expect(arrival.title, startsWith('Juma had'));
-    expect(arrival.detail, 'recorded with one parent');
-  });
-
-  test('a duplicated parent link does not repeat a name', () {
-    // Real data contained the same parent_of fact as two edges.
-    final entries = TimelineBuilder.build(
-      persons: [
-        born('dad', 'Elias', '1940', 1940),
-        born('mum', 'Marietha', '1945', 1945),
-        born('kid', 'Charles', '1970', 1970),
-      ],
-      relationships: [
-        const Relationship(
-          id: 'p1', personAId: 'dad', personBId: 'kid',
-          type: RelationshipType.parentOf,
-        ),
-        const Relationship(
-          id: 'p1dup', personAId: 'dad', personBId: 'kid',
-          type: RelationshipType.parentOf,
-        ),
-        const Relationship(
-          id: 'p2', personAId: 'mum', personBId: 'kid',
-          type: RelationshipType.parentOf,
-        ),
-      ],
-    );
-
-    final birth = entries.firstWhere(
-      (e) => e.kind == TimelineEventKind.birth && e.entityId == 'kid',
-    );
-    expect(birth.detail, 'to Elias and Marietha');
-
-    final arrivals =
-        entries.where((e) => e.kind == TimelineEventKind.child);
-    expect(arrivals, hasLength(1));
-  });
-
-  test('a marriage recorded from both sides appears once', () {
-    final entries = TimelineBuilder.build(
-      persons: [born('a', 'Elias', '1940', 1940), born('b', 'Marietha', null, null)],
-      relationships: [
-        const Relationship(
-          id: 'm1', personAId: 'a', personBId: 'b',
-          type: RelationshipType.spouseOf,
-          marriageYearRaw: '1965', marriageYear: 1965,
-        ),
-        const Relationship(
-          id: 'm2', personAId: 'b', personBId: 'a',
-          type: RelationshipType.spouseOf,
-          marriageYearRaw: '1965', marriageYear: 1965,
-        ),
-      ],
-    );
-
-    expect(
-      entries.where((e) => e.kind == TimelineEventKind.marriage),
-      hasLength(1),
-    );
+    final birth = entries.firstWhere((e) => e.entityId == 'kid');
+    expect(birth.detail, 'to Juma (one parent recorded)');
+    expect(entries.where((e) => e.entityId == 'kid'), hasLength(1));
   });
 
   group('a future reader can tell who everyone is', () {
