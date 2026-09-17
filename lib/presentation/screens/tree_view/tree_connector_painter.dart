@@ -107,9 +107,15 @@ class TreeConnectorPainter extends CustomPainter {
     // The sibling bar sits midway between the two rows.
     final barY = parentBottom + (childTop - parentBottom) / 2;
 
-    // Stem down from the couple to the bar.
+    // Start the stem on the marriage bar itself, which runs through the cards'
+    // vertical centre — not at the cards' bottom edge. Starting lower leaves a
+    // gap so the descent appears to hang unattached instead of joining the
+    // couple. For a lone parent there is no bar, so start at the card edge.
+    final isCouple = group.first.hasTwoParents;
+    final stemTop = isCouple ? origin.dy : parentBottom;
+
     canvas.drawLine(
-      Offset(origin.dx, parentBottom),
+      Offset(origin.dx, stemTop),
       Offset(origin.dx, barY),
       paint,
     );

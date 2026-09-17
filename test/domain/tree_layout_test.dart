@@ -238,6 +238,176 @@ void main() {
     });
   });
 
+  group('multiple spouses and half-siblings', () {
+    test('children of different mothers form separate sibling groups', () {
+      // Juma marries Asha and Neema. Each marriage has a child, and one child
+      // is his alone — born outside either marriage.
+      final layout = TreeLayoutBuilder.compute(
+        persons: [
+          person('Juma'), person('Asha'), person('Neema'),
+          person('WithAsha', birthYear: 1960),
+          person('WithNeema', birthYear: 1972),
+          person('Outside', birthYear: 1966),
+        ],
+        relationships: [
+          edge('Juma', 'Asha', RelationshipType.spouseOf),
+          edge('Juma', 'Neema', RelationshipType.spouseOf),
+          edge('Juma', 'WithAsha', RelationshipType.parentOf),
+          edge('Asha', 'WithAsha', RelationshipType.parentOf),
+          edge('Juma', 'WithNeema', RelationshipType.parentOf),
+          edge('Neema', 'WithNeema', RelationshipType.parentOf),
+          // No second parent: a child of Juma alone.
+          edge('Juma', 'Outside', RelationshipType.parentOf),
+        ],
+      );
+
+      final origins = layout.edges
+          .where((e) => e.kind == TreeEdgeKind.descent)
+          .map((e) => e.originX!.toStringAsFixed(3))
+          .toSet();
+
+      expect(origins, hasLength(3),
+          reason: 'three distinct parent sets must hang from three points: '
+              'Juma+Asha, Juma+Neema, and Juma alone');
+
+      _expectNoOverlap(layout);
+    });
+
+    test('a child of one parent hangs from that parent alone', () {
+      final layout = TreeLayoutBuilder.compute(
+        persons: [
+          person('Juma'), person('Asha'),
+          person('Ours', birthYear: 1960),
+          person('His', birthYear: 1966),
+        ],
+        relationships: [
+          edge('Juma', 'Asha', RelationshipType.spouseOf),
+          edge('Juma', 'Ours', RelationshipType.parentOf),
+          edge('Asha', 'Ours', RelationshipType.parentOf),
+          edge('Juma', 'His', RelationshipType.parentOf),
+        ],
+      );
+
+      double originFor(String child) => layout.edges
+          .firstWhere((e) =>
+              e.kind == TreeEdgeKind.descent &&
+              (e.toX - layout.xOf(child)).abs() < _eps)
+          .originX!;
+
+      // The shared child hangs from the couple's midpoint.
+      final coupleMid = (layout.xOf('Juma') + layout.xOf('Asha')) / 2;
+      expect(originFor('Ours'), closeTo(coupleMid, _eps));
+
+      // The child of Juma alone hangs from Juma, never from the couple.
+      expect(originFor('His'), closeTo(layout.xOf('Juma'), _eps));
+      expect(originFor('His'), isNot(closeTo(coupleMid, _eps)));
+    });
+
+    test('every child is still placed exactly once', () {
+      final layout = TreeLayoutBuilder.compute(
+        persons: [
+          person('Juma'), person('Asha'), person('Neema'),
+          person('A', birthYear: 1960),
+          person('B', birthYear: 1972),
+          person('C', birthYear: 1966),
+        ],
+        relationships: [
+          edge('Juma', 'Asha', RelationshipType.spouseOf),
+          edge('Juma', 'Neema', RelationshipType.spouseOf),
+          edge('Juma', 'A', RelationshipType.parentOf),
+          edge('Asha', 'A', RelationshipType.parentOf),
+          edge('Juma', 'B', RelationshipType.parentOf),
+          edge('Neema', 'B', RelationshipType.parentOf),
+          edge('Juma', 'C', RelationshipType.parentOf),
+        ],
+      );
+
+      expect(layout.nodes.map((n) => n.id).toSet(), hasLength(6));
+      _expectNoOverlap(layout);
+    });
+  });
+
+  group('duplicate edges in older data', () {
+    test('a doubled parent link draws one descent, not two', () {
+      final layout = TreeLayoutBuilder.compute(
+        persons: [person('Elias'), person('Marietha'), person('Charles')],
+        relationships: [
+          edge('Elias', 'Marietha', RelationshipType.spouseOf),
+          edge('Elias', 'Charles', RelationshipType.parentOf),
+          edge('Marietha', 'Charles', RelationshipType.parentOf),
+          // The same fact recorded a second time, as real data contains.
+          const Relationship(
+            id: 'duplicate',
+            personAId: 'Elias',
+            personBId: 'Charles',
+            type: RelationshipType.parentOf,
+          ),
+        ],
+      );
+
+      expect(
+        layout.edges.where((e) => e.kind == TreeEdgeKind.descent),
+        hasLength(1),
+        reason: 'one child, one descent line',
+      );
+      expect(layout.nodes, hasLength(3));
+    });
+
+    test('a mirrored marriage draws one bar', () {
+      final layout = TreeLayoutBuilder.compute(
+        persons: [person('Elias'), person('Marietha')],
+        relationships: [
+          edge('Elias', 'Marietha', RelationshipType.spouseOf),
+          const Relationship(
+            id: 'mirrored',
+            personAId: 'Marietha',
+            personBId: 'Elias',
+            type: RelationshipType.spouseOf,
+          ),
+        ],
+      );
+
+      expect(
+        layout.edges.where((e) => e.kind == TreeEdgeKind.couple),
+        hasLength(1),
+      );
+    });
+
+    test('a doubled link still groups children under one couple', () {
+      final layout = TreeLayoutBuilder.compute(
+        persons: [
+          person('Elias'), person('Marietha'),
+          person('Charles', birthYear: 1960),
+          person('Samora', birthYear: 1964),
+        ],
+        relationships: [
+          edge('Elias', 'Marietha', RelationshipType.spouseOf),
+          for (final kid in ['Charles', 'Samora']) ...[
+            edge('Elias', kid, RelationshipType.parentOf),
+            edge('Marietha', kid, RelationshipType.parentOf),
+          ],
+          const Relationship(
+            id: 'dup1', personAId: 'Elias', personBId: 'Charles',
+            type: RelationshipType.parentOf,
+          ),
+          const Relationship(
+            id: 'dup2', personAId: 'Elias', personBId: 'Samora',
+            type: RelationshipType.parentOf,
+          ),
+        ],
+      );
+
+      final origins = layout.edges
+          .where((e) => e.kind == TreeEdgeKind.descent)
+          .map((e) => e.originX!.toStringAsFixed(3))
+          .toSet();
+
+      expect(origins, hasLength(1),
+          reason: 'both children still hang from the one couple');
+      _expectNoOverlap(layout);
+    });
+  });
+
   group('no overlap', () {
     test('two separate branches do not collide', () {
       // Two couples in generation 0, each with two children.

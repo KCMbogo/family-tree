@@ -62,12 +62,16 @@ class _TimelineTile extends StatelessWidget {
       TimelineEventKind.birth => (Icons.child_care_outlined, scheme.primary),
       TimelineEventKind.marriage =>
         (Icons.favorite_outline, scheme.tertiary),
+      TimelineEventKind.child =>
+        (Icons.family_restroom_outlined, scheme.secondary),
+      TimelineEventKind.death =>
+        (Icons.local_florist_outlined, scheme.onSurfaceVariant),
     };
 
     return InkWell(
-      onTap: entry.kind == TimelineEventKind.birth
-          ? () => context.push(Routes.person(entry.entityId))
-          : null,
+      onTap: entry.kind == TimelineEventKind.marriage
+          ? null
+          : () => context.push(Routes.person(entry.entityId)),
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -139,6 +143,14 @@ class _TimelineTile extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (entry.detail != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        entry.detail!,
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
                     if (entry.subtitle != null || !entry.isDated) ...[
                       const SizedBox(height: 3),
                       Text(

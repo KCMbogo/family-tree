@@ -59,6 +59,167 @@ void main() {
     expect(entries.last.yearLabel, 'during the war');
   });
 
+  test('a birth names the parents it belongs to', () {
+    final entries = TimelineBuilder.build(
+      persons: [
+        born('dad', 'Juma', '1930', 1930),
+        born('mum', 'Asha', '1934', 1934),
+        born('kid', 'Neema', '1960', 1960),
+      ],
+      relationships: [
+        const Relationship(
+          id: 'r1', personAId: 'dad', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+        const Relationship(
+          id: 'r2', personAId: 'mum', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+      ],
+    );
+
+    final birth = entries.firstWhere(
+      (e) => e.kind == TimelineEventKind.birth && e.entityId == 'kid',
+    );
+    expect(birth.detail, 'to Juma and Asha');
+  });
+
+  test('a couple having a child is its own event', () {
+    final entries = TimelineBuilder.build(
+      persons: [
+        born('dad', 'Juma', '1930', 1930),
+        born('mum', 'Asha', '1934', 1934),
+        const Person(
+          id: 'kid', fullName: 'Neema', birthYearRaw: '1960',
+          birthYear: 1960, gender: Gender.female,
+        ),
+      ],
+      relationships: [
+        const Relationship(
+          id: 'm', personAId: 'dad', personBId: 'mum',
+          type: RelationshipType.spouseOf,
+          marriageYearRaw: '1955', marriageYear: 1955,
+        ),
+        const Relationship(
+          id: 'r1', personAId: 'dad', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+        const Relationship(
+          id: 'r2', personAId: 'mum', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+      ],
+    );
+
+    final arrival =
+        entries.firstWhere((e) => e.kind == TimelineEventKind.child);
+    expect(arrival.title, contains('had a daughter'));
+    expect(arrival.title, contains('Neema'));
+    expect(arrival.detail, 'married 1955');
+
+    // The story reads in order: marriage, then the child.
+    final marriageAt =
+        entries.indexWhere((e) => e.kind == TimelineEventKind.marriage);
+    final childAt = entries.indexOf(arrival);
+    expect(marriageAt, lessThan(childAt));
+  });
+
+  test('a child of one parent is flagged as such, not invented into a couple',
+      () {
+    final entries = TimelineBuilder.build(
+      persons: [
+        born('dad', 'Juma', '1930', 1930),
+        born('kid', 'Baraka', '1966', 1966),
+      ],
+      relationships: [
+        const Relationship(
+          id: 'r1', personAId: 'dad', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+      ],
+    );
+
+    final arrival =
+        entries.firstWhere((e) => e.kind == TimelineEventKind.child);
+    expect(arrival.title, startsWith('Juma had'));
+    expect(arrival.detail, 'recorded with one parent');
+  });
+
+  test('a duplicated parent link does not repeat a name', () {
+    // Real data contained the same parent_of fact as two edges.
+    final entries = TimelineBuilder.build(
+      persons: [
+        born('dad', 'Elias', '1940', 1940),
+        born('mum', 'Marietha', '1945', 1945),
+        born('kid', 'Charles', '1970', 1970),
+      ],
+      relationships: [
+        const Relationship(
+          id: 'p1', personAId: 'dad', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+        const Relationship(
+          id: 'p1dup', personAId: 'dad', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+        const Relationship(
+          id: 'p2', personAId: 'mum', personBId: 'kid',
+          type: RelationshipType.parentOf,
+        ),
+      ],
+    );
+
+    final birth = entries.firstWhere(
+      (e) => e.kind == TimelineEventKind.birth && e.entityId == 'kid',
+    );
+    expect(birth.detail, 'to Elias and Marietha');
+
+    final arrivals =
+        entries.where((e) => e.kind == TimelineEventKind.child);
+    expect(arrivals, hasLength(1));
+  });
+
+  test('a marriage recorded from both sides appears once', () {
+    final entries = TimelineBuilder.build(
+      persons: [born('a', 'Elias', '1940', 1940), born('b', 'Marietha', null, null)],
+      relationships: [
+        const Relationship(
+          id: 'm1', personAId: 'a', personBId: 'b',
+          type: RelationshipType.spouseOf,
+          marriageYearRaw: '1965', marriageYear: 1965,
+        ),
+        const Relationship(
+          id: 'm2', personAId: 'b', personBId: 'a',
+          type: RelationshipType.spouseOf,
+          marriageYearRaw: '1965', marriageYear: 1965,
+        ),
+      ],
+    );
+
+    expect(
+      entries.where((e) => e.kind == TimelineEventKind.marriage),
+      hasLength(1),
+    );
+  });
+
+  test('a deceased person gets an undated death entry', () {
+    final entries = TimelineBuilder.build(
+      persons: [
+        const Person(
+          id: 'a', fullName: 'Juma', birthYearRaw: '1930',
+          birthYear: 1930, isDeceased: true,
+        ),
+      ],
+      relationships: const [],
+    );
+
+    final death =
+        entries.firstWhere((e) => e.kind == TimelineEventKind.death);
+    expect(death.title, 'Juma died');
+    expect(death.isDated, isFalse);
+    expect(entries.last, death, reason: 'undated events sort to the end');
+  });
+
   test('marriages are included and named after both spouses', () {
     final entries = TimelineBuilder.build(
       persons: [
@@ -77,9 +238,10 @@ void main() {
       ],
     );
 
-    expect(entries, hasLength(3));
-    expect(entries.last.kind, TimelineEventKind.marriage);
-    expect(entries.last.title, allOf(contains('Juma'), contains('Asha')));
+    final marriage =
+        entries.firstWhere((e) => e.kind == TimelineEventKind.marriage);
+    expect(marriage.title, allOf(contains('Juma'), contains('Asha')));
+    expect(marriage.year, 1959);
   });
 
   test('a marriage with no recorded year is not invented onto the timeline',

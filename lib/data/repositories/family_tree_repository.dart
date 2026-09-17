@@ -264,6 +264,11 @@ class FamilyTreeRepository {
       throw ArgumentError('A person cannot be related to themselves.');
     }
 
+    // The same link can be reached from either person's profile; recording it
+    // twice would list the relative twice.
+    final duplicate = await _findEquivalent(personAId, personBId, type);
+    if (duplicate != null) return duplicate;
+
     final id = _uuid.v4();
     final claims = <ClaimEvent>[
       buildClaim(
@@ -297,6 +302,104 @@ class FamilyTreeRepository {
 
     await recordClaims(claims);
     return id;
+  }
+
+  /// Records a child against one or two parents in a single batch.
+  ///
+  /// Parenthood is two separate `parent_of` edges, but they must land together:
+  /// a child briefly attached to only one parent would render as a different
+  /// family (its own sibling group) until the second edge arrived.
+  ///
+  /// Passing a single parent is how a child from outside a marriage is
+  /// recorded — the layout groups by the exact parent set, so that child
+  /// correctly forms its own group rather than joining the couple's children.
+  Future<List<String>> addChild({
+    required String childId,
+    required List<String> parentIds,
+  }) async {
+    final parents = parentIds.toSet().toList();
+    if (parents.isEmpty) {
+      throw ArgumentError('A child needs at least one parent.');
+    }
+    if (parents.contains(childId)) {
+      throw ArgumentError('A person cannot be their own parent.');
+    }
+
+    // Skip parents already recorded for this child. The same parent→child
+    // fact can be reached from either parent's profile, and asserting it twice
+    // would create two edges — which the profile then lists as two children.
+    final existing = await _parentsOf(childId);
+    final missing = parents.where((p) => !existing.contains(p)).toList();
+
+    final claims = <ClaimEvent>[];
+    final ids = <String>[];
+
+    for (final parentId in missing) {
+      final id = _uuid.v4();
+      ids.add(id);
+      claims.addAll([
+        buildClaim(
+          entityId: id,
+          entityType: EntityType.relationship,
+          field: ClaimFields.personAId,
+          value: parentId,
+        ),
+        buildClaim(
+          entityId: id,
+          entityType: EntityType.relationship,
+          field: ClaimFields.personBId,
+          value: childId,
+        ),
+        buildClaim(
+          entityId: id,
+          entityType: EntityType.relationship,
+          field: ClaimFields.relationshipType,
+          value: RelationshipType.parentOf.wireName,
+        ),
+      ]);
+    }
+
+    await recordClaims(claims);
+    return ids;
+  }
+
+  /// An existing, non-retracted relationship asserting the same fact.
+  ///
+  /// Spouse and sibling links are symmetric, so A→B and B→A are the same
+  /// claim and must not both be stored.
+  Future<String?> _findEquivalent(
+    String personAId,
+    String personBId,
+    RelationshipType type,
+  ) async {
+    final rows = await _db.projectionDao.allRelationships();
+
+    for (final row in rows) {
+      final r = row.toDomain();
+      if (r.isRetracted || r.type != type) continue;
+
+      final same = r.personAId == personAId && r.personBId == personBId;
+      final mirrored = type.isSymmetric &&
+          r.personAId == personBId &&
+          r.personBId == personAId;
+
+      if (same || mirrored) return r.id;
+    }
+    return null;
+  }
+
+  /// The ids already recorded as parents of [childId].
+  Future<Set<String>> _parentsOf(String childId) async {
+    final rows = await _db.projectionDao.allRelationships();
+    return rows
+        .map((row) => row.toDomain())
+        .where((r) =>
+            !r.isRetracted &&
+            r.type == RelationshipType.parentOf &&
+            r.personBId == childId)
+        .map((r) => r.personAId)
+        .whereType<String>()
+        .toSet();
   }
 
   /// Removes a relationship by retracting it. The claims that created it stay

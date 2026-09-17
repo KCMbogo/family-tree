@@ -45,6 +45,7 @@ class TreeEdge {
     required this.toX,
     required this.toGeneration,
     this.originX,
+    this.hasTwoParents = false,
   });
 
   final TreeEdgeKind kind;
@@ -58,6 +59,11 @@ class TreeEdge {
   /// of the parent couple. Children of one couple share this, which is what
   /// makes them read as a sibling group.
   final double? originX;
+
+  /// True when this descent comes from two parents, so a marriage bar exists
+  /// at [originX] for the stem to start on. With one parent there is no bar
+  /// and the stem starts at the card's bottom edge instead.
+  final bool hasTwoParents;
 }
 
 /// A married (or otherwise paired) couple, plus their children.
@@ -298,8 +304,12 @@ abstract final class TreeLayoutBuilder {
     for (final family in families) {
       if (family.childIds.isEmpty) continue;
 
-      final parentXs =
-          family.parentIds.map((p) => positions[p]).whereType<double>();
+      // Materialised: this is re-read once per child below, and a lazy
+      // iterable would recompute the whole map each time.
+      final parentXs = family.parentIds
+          .map((p) => positions[p])
+          .whereType<double>()
+          .toList();
       if (parentXs.isEmpty) continue;
 
       // Descent hangs from the centre of the couple, not from one parent.
@@ -320,6 +330,7 @@ abstract final class TreeLayoutBuilder {
           toX: childX,
           toGeneration: generation[childId]!,
           originX: originX,
+          hasTwoParents: parentXs.length > 1,
         ));
       }
     }
@@ -372,6 +383,10 @@ class _Graph {
     final siblings = <({String a, String b})>[];
     final peers = <({String a, String b})>[];
 
+    final seenParent = <String>{};
+    final seenCouple = <String>{};
+    final seenSibling = <String>{};
+
     final usable = relationships.where((r) =>
         r.isComplete &&
         byId.containsKey(r.personAId) &&
@@ -381,16 +396,27 @@ class _Graph {
       final a = relationship.personAId!;
       final b = relationship.personBId!;
 
+      // Older data can assert the same fact twice (the same child recorded
+      // from each parent's profile). Deduplicate here so a doubled edge never
+      // draws a doubled line or splits a sibling group.
+      final key = [a, b].join('|');
+      final mirrored = [b, a].join('|');
+
       switch (relationship.type!) {
         case RelationshipType.parentOf:
+          if (!seenParent.add(key)) continue;
           parentsOf.putIfAbsent(b, () => []).add(a);
           childrenOf.putIfAbsent(a, () => []).add(b);
         case RelationshipType.spouseOf:
+          if (seenCouple.contains(mirrored) || !seenCouple.add(key)) continue;
           spousesOf.putIfAbsent(a, () => []).add(b);
           spousesOf.putIfAbsent(b, () => []).add(a);
           couples.add((a: a, b: b));
           peers.add((a: a, b: b));
         case RelationshipType.siblingOf:
+          if (seenSibling.contains(mirrored) || !seenSibling.add(key)) {
+            continue;
+          }
           siblings.add((a: a, b: b));
           peers.add((a: a, b: b));
       }

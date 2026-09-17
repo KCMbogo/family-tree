@@ -141,6 +141,9 @@ class ProjectionDao extends DatabaseAccessor<AppDatabase>
         .watch();
   }
 
+  Future<List<RelationshipRow>> allRelationships() =>
+      select(relationships).get();
+
   Future<RelationshipRow?> findRelationship(String id) {
     return (select(relationships)..where((t) => t.id.equals(id)))
         .getSingleOrNull();

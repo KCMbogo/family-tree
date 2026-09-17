@@ -289,8 +289,15 @@ class _RelationshipsSection extends ConsumerWidget {
   ) {
     final groups = <String, List<_RelatedPerson>>{};
 
-    void add(String label, _RelatedPerson entry) =>
-        groups.putIfAbsent(label, () => []).add(entry);
+    // One row per related person per group. Older data can hold the same fact
+    // as two edges (it was once possible to record a child from each parent's
+    // profile), and a relative must never be listed twice because of that.
+    final seen = <String>{};
+
+    void add(String label, _RelatedPerson entry) {
+      if (!seen.add('$label|${entry.personId}')) return;
+      groups.putIfAbsent(label, () => []).add(entry);
+    }
 
     for (final relationship in relationships) {
       if (!relationship.isComplete) continue;

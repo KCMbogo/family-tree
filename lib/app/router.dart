@@ -23,6 +23,11 @@ abstract final class Routes {
   static String person(String id) => '/person/$id';
   static String editPerson(String id) => '/person/$id/edit';
   static String addRelationship(String id) => '/person/$id/add-relationship';
+
+  /// The relationship step shown right after creating someone, so a new person
+  /// can be connected without hunting for them in the tree first.
+  static String connectNewPerson(String id) =>
+      '/person/$id/add-relationship?onboarding=1';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -105,6 +110,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: 'add-relationship',
             builder: (context, state) => AddRelationshipScreen(
               personId: state.pathParameters['id']!,
+              isNewPerson:
+                  state.uri.queryParameters['onboarding'] == '1',
             ),
           ),
         ],

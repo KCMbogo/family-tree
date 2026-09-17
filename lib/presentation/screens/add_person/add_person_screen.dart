@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../domain/models/person.dart';
 import '../../../providers/app_providers.dart';
 import '../../../providers/tree_providers.dart';
@@ -127,6 +128,13 @@ class _PersonFormState extends ConsumerState<_PersonForm> {
         );
         final photo = _pickedPhoto;
         if (photo != null) await _attachPhoto(id, photo);
+
+        // Straight on to linking them, so a new person never has to be hunted
+        // down in the tree just to record how they are related.
+        if (mounted) {
+          context.pushReplacement(Routes.connectNewPerson(id));
+          return;
+        }
       }
 
       if (mounted) context.pop();

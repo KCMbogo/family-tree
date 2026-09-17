@@ -405,6 +405,142 @@ void main() {
       );
     });
 
+    test('a child is recorded against both parents at once', () async {
+      final dad = await people.addPerson(fullName: 'Juma');
+      final mum = await people.addPerson(fullName: 'Asha');
+      final kid = await people.addPerson(fullName: 'Neema');
+
+      await trees.addRelationship(
+        personAId: dad, personBId: mum, type: RelationshipType.spouseOf,
+      );
+      final ids = await trees.addChild(childId: kid, parentIds: [dad, mum]);
+
+      expect(ids, hasLength(2));
+
+      final parents = (await trees.watchRelationships().first)
+          .where((r) => r.type == RelationshipType.parentOf && r.personBId == kid)
+          .map((r) => r.personAId)
+          .toSet();
+
+      expect(parents, {dad, mum},
+          reason: 'both spouses must be recorded as parents');
+    });
+
+    test('a child of one parent keeps a single parent', () async {
+      final dad = await people.addPerson(fullName: 'Juma');
+      final mum = await people.addPerson(fullName: 'Asha');
+      final outsideChild = await people.addPerson(fullName: 'Baraka');
+
+      await trees.addRelationship(
+        personAId: dad, personBId: mum, type: RelationshipType.spouseOf,
+      );
+      // Born outside the marriage: only the father is recorded.
+      await trees.addChild(childId: outsideChild, parentIds: [dad]);
+
+      final parents = (await trees.watchRelationships().first)
+          .where((r) =>
+              r.type == RelationshipType.parentOf &&
+              r.personBId == outsideChild)
+          .map((r) => r.personAId)
+          .toSet();
+
+      expect(parents, {dad});
+      expect(parents, isNot(contains(mum)),
+          reason: 'the wife must not be made a parent of a child that is '
+              'not hers');
+    });
+
+    test('adding the same child twice does not create a second edge',
+        () async {
+      // Reproduces real data: Elias→Charles was recorded from each parent's
+      // profile, producing two identical parent_of edges and listing the
+      // child twice.
+      final dad = await people.addPerson(fullName: 'Elias');
+      final mum = await people.addPerson(fullName: 'Marietha');
+      final kid = await people.addPerson(fullName: 'Charles');
+
+      await trees.addRelationship(
+        personAId: dad, personBId: mum, type: RelationshipType.spouseOf,
+      );
+
+      await trees.addChild(childId: kid, parentIds: [dad, mum]);
+      // Same assertion again, as adding from the other parent's profile does.
+      final second = await trees.addChild(childId: kid, parentIds: [dad, mum]);
+
+      expect(second, isEmpty, reason: 'nothing new to assert');
+
+      final edges = (await trees.watchRelationships().first)
+          .where((r) =>
+              r.type == RelationshipType.parentOf && r.personBId == kid)
+          .toList();
+
+      expect(edges, hasLength(2), reason: 'one edge per parent, not four');
+      expect(edges.map((r) => r.personAId).toSet(), {dad, mum});
+    });
+
+    test('a second parent can still be added later', () async {
+      final dad = await people.addPerson(fullName: 'Elias');
+      final mum = await people.addPerson(fullName: 'Marietha');
+      final kid = await people.addPerson(fullName: 'Charles');
+
+      await trees.addChild(childId: kid, parentIds: [dad]);
+      await trees.addChild(childId: kid, parentIds: [dad, mum]);
+
+      final parents = (await trees.watchRelationships().first)
+          .where((r) =>
+              r.type == RelationshipType.parentOf && r.personBId == kid)
+          .map((r) => r.personAId)
+          .toSet();
+
+      expect(parents, {dad, mum});
+    });
+
+    test('a spouse link recorded from either side is stored once', () async {
+      final a = await people.addPerson(fullName: 'Elias');
+      final b = await people.addPerson(fullName: 'Marietha');
+
+      final first = await trees.addRelationship(
+        personAId: a, personBId: b, type: RelationshipType.spouseOf,
+      );
+      // The mirrored assertion, as adding from the other profile would make.
+      final second = await trees.addRelationship(
+        personAId: b, personBId: a, type: RelationshipType.spouseOf,
+      );
+
+      expect(second, first, reason: 'marriage is symmetric');
+      expect(
+        (await trees.watchRelationships().first)
+            .where((r) => r.type == RelationshipType.spouseOf),
+        hasLength(1),
+      );
+    });
+
+    test('duplicate parents are collapsed', () async {
+      final dad = await people.addPerson(fullName: 'Juma');
+      final kid = await people.addPerson(fullName: 'Neema');
+
+      final ids = await trees.addChild(childId: kid, parentIds: [dad, dad]);
+      expect(ids, hasLength(1));
+    });
+
+    test('a child cannot be their own parent', () async {
+      final id = await people.addPerson(fullName: 'Juma');
+
+      expect(
+        () => trees.addChild(childId: id, parentIds: [id]),
+        throwsArgumentError,
+      );
+    });
+
+    test('a child needs at least one parent', () async {
+      final id = await people.addPerson(fullName: 'Juma');
+
+      expect(
+        () => trees.addChild(childId: id, parentIds: const []),
+        throwsArgumentError,
+      );
+    });
+
     test('a person cannot be related to themselves', () async {
       final id = await people.addPerson(fullName: 'Juma');
 
