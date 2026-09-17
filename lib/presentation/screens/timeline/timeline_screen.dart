@@ -30,13 +30,72 @@ class TimelineScreen extends ConsumerWidget {
           return ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 12),
             itemCount: entries.length,
-            itemBuilder: (context, index) => _TimelineTile(
-              entry: entries[index],
-              isFirst: index == 0,
-              isLast: index == entries.length - 1,
-            ),
+            itemBuilder: (context, index) {
+              final entry = entries[index];
+              // A heading whenever the kind of event changes, so in-laws and
+              // undated events are visibly separated rather than blending
+              // into the run of births.
+              final previous = index == 0 ? null : entries[index - 1];
+              final heading = _headingFor(entry, previous);
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (heading != null) _SectionHeading(text: heading),
+                  _TimelineTile(
+                    entry: entry,
+                    isFirst: index == 0 || heading != null,
+                    isLast: index == entries.length - 1,
+                  ),
+                ],
+              );
+            },
           );
         },
+      ),
+    );
+  }
+}
+
+/// The heading shown above [entry], or null when it continues the last one.
+String? _headingFor(TimelineEntry entry, TimelineEntry? previous) {
+  final current = _sectionOf(entry);
+  if (previous == null) return current;
+  return current == _sectionOf(previous) ? null : current;
+}
+
+String _sectionOf(TimelineEntry entry) {
+  if (!entry.isDated) return 'Undated';
+  if (entry.era != null) return entry.era!;
+  return 'The family';
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 6),
+      child: Row(
+        children: [
+          Text(
+            text.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Divider(color: theme.colorScheme.outlineVariant),
+          ),
+        ],
       ),
     );
   }

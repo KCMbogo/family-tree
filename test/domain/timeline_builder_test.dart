@@ -202,6 +202,97 @@ void main() {
     );
   });
 
+  group('a future reader can tell who everyone is', () {
+    // Joyce has no parents in the tree. Without context her birth entry is
+    // just an unexplained name.
+    List<TimelineEntry> threeGenerations() => TimelineBuilder.build(
+          persons: [
+            born('elias', 'Elias', '1940', 1940),
+            born('marietha', 'Marietha', '1945', 1945),
+            born('charles', 'Charles', '1970', 1970),
+            born('joyce', 'Joyce', '1974', 1974),
+          ],
+          relationships: [
+            const Relationship(
+              id: 'm1', personAId: 'elias', personBId: 'marietha',
+              type: RelationshipType.spouseOf,
+              marriageYearRaw: '1965', marriageYear: 1965,
+            ),
+            const Relationship(
+              id: 'm2', personAId: 'charles', personBId: 'joyce',
+              type: RelationshipType.spouseOf,
+              marriageYearRaw: '1996', marriageYear: 1996,
+            ),
+            const Relationship(
+              id: 'p1', personAId: 'elias', personBId: 'charles',
+              type: RelationshipType.parentOf,
+            ),
+            const Relationship(
+              id: 'p2', personAId: 'marietha', personBId: 'charles',
+              type: RelationshipType.parentOf,
+            ),
+          ],
+        );
+
+    TimelineEntry birthOf(String id) => threeGenerations().firstWhere(
+          (e) => e.kind == TimelineEventKind.birth && e.entityId == id,
+        );
+
+    test('someone who married in is introduced as such', () {
+      final joyce = birthOf('joyce');
+
+      expect(joyce.era, 'Married into the family');
+      expect(joyce.detail, contains('married Charles'));
+      expect(joyce.detail, contains('joining the family'));
+    });
+
+    test('a child born into the family names its parents', () {
+      final charles = birthOf('charles');
+
+      expect(charles.era, isNull, reason: 'blood family needs no heading');
+      expect(charles.detail, 'to Elias and Marietha');
+    });
+
+    test('the oldest couple are founders, not in-laws', () {
+      // Neither has parents recorded, so neither married "into" anything.
+      expect(birthOf('elias').era, 'Where the family begins');
+      expect(birthOf('marietha').era, 'Where the family begins');
+    });
+
+    test('a marriage says who joined whom', () {
+      final marriage = threeGenerations().firstWhere(
+        (e) => e.kind == TimelineEventKind.marriage && e.entityId == 'm2',
+      );
+
+      expect(marriage.detail, 'Joyce joined the family');
+    });
+
+    test('a founding marriage does not claim anyone joined', () {
+      final marriage = threeGenerations().firstWhere(
+        (e) => e.kind == TimelineEventKind.marriage && e.entityId == 'm1',
+      );
+
+      expect(marriage.detail, isNull);
+    });
+  });
+
+  test('an undated marriage still appears', () {
+    final entries = TimelineBuilder.build(
+      persons: [born('a', 'Juma', '1930', 1930), born('b', 'Asha', null, null)],
+      relationships: [
+        const Relationship(
+          id: 'm', personAId: 'a', personBId: 'b',
+          type: RelationshipType.spouseOf,
+        ),
+      ],
+    );
+
+    final marriage =
+        entries.firstWhere((e) => e.kind == TimelineEventKind.marriage);
+    expect(marriage.isDated, isFalse,
+        reason: 'a wedding with no year recorded is still a wedding');
+  });
+
   test('a deceased person gets an undated death entry', () {
     final entries = TimelineBuilder.build(
       persons: [
@@ -244,8 +335,7 @@ void main() {
     expect(marriage.year, 1959);
   });
 
-  test('a marriage with no recorded year is not invented onto the timeline',
-      () {
+  test('a marriage with no year is shown undated, not given a date', () {
     final entries = TimelineBuilder.build(
       persons: [born('a', 'Juma', null, null), born('b', 'Asha', null, null)],
       relationships: [
@@ -258,7 +348,7 @@ void main() {
       ],
     );
 
-    expect(entries, isEmpty);
+    expect(entries.where((e) => e.isDated), isEmpty);
   });
 
   test('retracted people drop out of the timeline entirely', () {

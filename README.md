@@ -101,6 +101,30 @@ two parents, which is the single most recognisable feature of a family tree —
 that was the original bug, and `test/domain/tree_layout_test.dart` now pins the
 centring, ordering and no-overlap properties.
 
+## The timeline
+
+The timeline is written for someone reading it years from now, who will not
+know who half the names are. So each entry carries its relational context
+rather than standing alone:
+
+- a birth names the parents (`to Elias and Marietha`);
+- someone with no parents in the tree is introduced by how they joined it
+  (`later married Charles, joining the family`), under a **Married into the
+  family** heading;
+- the oldest couple — nobody above them — are headed **Where the family
+  begins** rather than being mislabelled as in-laws;
+- a marriage names who joined whom;
+- a couple having a child is its own event, so a marriage reads as the start
+  of a family rather than an endpoint.
+
+Nothing is inferred to fill a gap. An undated event stays undated and sorts to
+the end under **Undated**, because "we know this happened but not when" is real
+family knowledge.
+
+Wedding dates are a fact about the *marriage*, not about either spouse, so they
+are recorded on the relationship and edited from either partner's profile — the
+calendar icon beside a spouse.
+
 ## Media
 
 Files are identified by the SHA-256 of their bytes, not by path. The path is
@@ -139,7 +163,7 @@ Conflict handling needs no new code path: remote claims fold by the same
 flutter test
 ```
 
-87 tests. The ones that matter most:
+118 tests. The ones that matter most:
 
 - `test/data/event_sourcing_test.dart` and `test/domain/claim_projector_test.dart`
   pin the behaviour the whole trust model depends on: two conflicting claims

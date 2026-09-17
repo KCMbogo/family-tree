@@ -386,6 +386,60 @@ void main() {
       expect(relationship.marriageYear, 1959);
     });
 
+    test('a marriage year can be added after the fact', () async {
+      final a = await people.addPerson(fullName: 'Elias');
+      final b = await people.addPerson(fullName: 'Marietha');
+
+      // Recorded without a year, as most links are.
+      final id = await trees.addRelationship(
+        personAId: a, personBId: b, type: RelationshipType.spouseOf,
+      );
+      expect((await trees.findRelationship(id))!.marriageYearRaw, isNull);
+
+      await trees.setMarriageYear(id, '1965');
+
+      final updated = await trees.findRelationship(id);
+      expect(updated!.marriageYearRaw, '1965');
+      expect(updated.marriageYear, 1965);
+    });
+
+    test('a corrected marriage year keeps the earlier guess in history',
+        () async {
+      final a = await people.addPerson(fullName: 'Elias');
+      final b = await people.addPerson(fullName: 'Marietha');
+      final id = await trees.addRelationship(
+        personAId: a, personBId: b,
+        type: RelationshipType.spouseOf, marriageYear: 'around 1960',
+      );
+
+      await trees.setMarriageYear(id, '1965');
+
+      expect((await trees.findRelationship(id))!.marriageYearRaw, '1965');
+
+      final claims = (await db.claimEventDao.eventsForEntity(id))
+          .where((e) => e.field == ClaimFields.marriageYear)
+          .map((e) => e.value);
+      expect(claims, containsAll(<String>['"around 1960"', '"1965"']));
+    });
+
+    test('clearing a marriage year retracts it', () async {
+      final a = await people.addPerson(fullName: 'Elias');
+      final b = await people.addPerson(fullName: 'Marietha');
+      final id = await trees.addRelationship(
+        personAId: a, personBId: b,
+        type: RelationshipType.spouseOf, marriageYear: '1965',
+      );
+
+      await trees.setMarriageYear(id, '  ');
+
+      expect((await trees.findRelationship(id))!.marriageYearRaw, isNull);
+      expect(
+        (await db.claimEventDao.eventsForEntity(id))
+            .any((e) => e.field == ClaimFields.retracted),
+        isTrue,
+      );
+    });
+
     test('removing an edge retracts it and keeps the claims', () async {
       final a = await people.addPerson(fullName: 'Juma');
       final b = await people.addPerson(fullName: 'Asha');

@@ -3,6 +3,23 @@ import '../models/relationship.dart';
 
 enum TimelineEventKind { birth, marriage, child, death }
 
+/// How a person entered the family, which is what a reader years from now
+/// needs in order to place a name they have never heard.
+enum FamilyEntry {
+  /// Born into the family — has a recorded parent here.
+  born,
+
+  /// Married someone who was born into the family.
+  marriedIn,
+
+  /// The oldest recorded couple: nobody above them, so they are the family's
+  /// starting point rather than in-laws.
+  founder,
+
+  /// Nothing yet connects them.
+  unconnected,
+}
+
 /// One dated (or undated) event in the family's history.
 class TimelineEntry {
   const TimelineEntry({
@@ -13,12 +30,17 @@ class TimelineEntry {
     this.yearLabel,
     this.subtitle,
     this.detail,
+    this.era,
   });
 
   final TimelineEventKind kind;
 
   /// The headline, e.g. `Juma and Asha married`.
   final String title;
+
+  /// Groups entries under a generation heading, so the timeline reads as
+  /// chapters rather than one flat run of dates.
+  final String? era;
 
   /// The person or relationship this entry links to.
   final String entityId;
@@ -79,8 +101,17 @@ abstract final class TimelineBuilder {
       for (final entry in parentIdsOf.entries) entry.key: entry.value.toList(),
     };
 
+    // Who married whom, so someone with no parents here can be introduced as
+    // having married in rather than appearing as an unexplained name.
+    final spousesOf = <String, List<String>>{};
+    for (final r in usable) {
+      if (r.type != RelationshipType.spouseOf) continue;
+      spousesOf.putIfAbsent(r.personAId!, () => []).add(r.personBId!);
+      spousesOf.putIfAbsent(r.personBId!, () => []).add(r.personAId!);
+    }
+
     final entries = <TimelineEntry>[
-      ..._births(byId, parentsOf),
+      ..._births(byId, parentsOf, spousesOf),
       ..._marriages(byId, usable),
       ..._childArrivals(byId, usable, parentsOf),
       ..._deaths(byId),
@@ -109,6 +140,7 @@ abstract final class TimelineBuilder {
   static Iterable<TimelineEntry> _births(
     Map<String, Person> byId,
     Map<String, List<String>> parentsOf,
+    Map<String, List<String>> spousesOf,
   ) sync* {
     for (final person in byId.values) {
       if (person.birthYearRaw == null) continue;
@@ -118,19 +150,58 @@ abstract final class TimelineBuilder {
           .whereType<String>()
           .toList();
 
+      final spouses = (spousesOf[person.id] ?? const <String>[])
+          .map((id) => byId[id]?.displayName)
+          .whereType<String>()
+          .toList();
+
+      // Someone reading this in fifty years needs to know who the name
+      // belongs to. A birth with no parents recorded here is otherwise just
+      // an unexplained person: say how they joined the family instead.
+      final entry = _entryFor(
+        parents: parents,
+        spouses: spouses,
+        spouseBornHere: (spousesOf[person.id] ?? const <String>[])
+            .any((id) => (parentsOf[id] ?? const <String>[]).isNotEmpty),
+      );
+
       yield TimelineEntry(
         kind: TimelineEventKind.birth,
         title: '${person.displayName} was born',
-        // Naming the parents is what ties a birth into the family rather
-        // than leaving it as a standalone date.
-        detail: parents.isEmpty ? null : 'to ${_join(parents)}',
+        detail: switch (entry) {
+          FamilyEntry.born => 'to ${_join(parents)}',
+          FamilyEntry.marriedIn =>
+            'later married ${_join(spouses)}, joining the family',
+          FamilyEntry.founder => 'married ${_join(spouses)}',
+          FamilyEntry.unconnected => null,
+        },
         subtitle: person.birthPlace,
         entityId: person.id,
         year: person.birthYear,
         yearLabel: person.birthYearRaw,
+        era: _eraFor(entry),
       );
     }
   }
+
+  /// Someone only "married in" if their spouse was born into this tree.
+  /// When neither has parents recorded, they are the founding couple — the
+  /// start of the family, not in-laws.
+  static FamilyEntry _entryFor({
+    required List<String> parents,
+    required List<String> spouses,
+    required bool spouseBornHere,
+  }) {
+    if (parents.isNotEmpty) return FamilyEntry.born;
+    if (spouses.isEmpty) return FamilyEntry.unconnected;
+    return spouseBornHere ? FamilyEntry.marriedIn : FamilyEntry.founder;
+  }
+
+  static String? _eraFor(FamilyEntry entry) => switch (entry) {
+        FamilyEntry.marriedIn => 'Married into the family',
+        FamilyEntry.founder => 'Where the family begins',
+        _ => null,
+      };
 
   static Iterable<TimelineEntry> _marriages(
     Map<String, Person> byId,
@@ -138,9 +209,16 @@ abstract final class TimelineBuilder {
   ) sync* {
     final seen = <String>{};
 
+    // Whether each spouse has parents in this tree, which decides who is
+    // understood to have married in.
+    final hasParentsHere = <String, bool>{};
+    for (final r in relationships) {
+      if (r.type != RelationshipType.parentOf) continue;
+      hasParentsHere[r.personBId!] = true;
+    }
+
     for (final r in relationships) {
       if (r.type != RelationshipType.spouseOf) continue;
-      if (r.marriageYearRaw == null) continue;
 
       // A marriage recorded from both sides is still one wedding.
       final pair = ([r.personAId!, r.personBId!]..sort()).join('|');
@@ -149,9 +227,23 @@ abstract final class TimelineBuilder {
       final a = byId[r.personAId]!;
       final b = byId[r.personBId]!;
 
+      final aIsBlood = hasParentsHere[a.id] ?? false;
+      final bIsBlood = hasParentsHere[b.id] ?? false;
+
+      // Naming who joined whom is what stops an in-law reading as a stranger.
+      final String? joining;
+      if (aIsBlood && !bIsBlood) {
+        joining = '${b.displayName} joined the family';
+      } else if (bIsBlood && !aIsBlood) {
+        joining = '${a.displayName} joined the family';
+      } else {
+        joining = null;
+      }
+
       yield TimelineEntry(
         kind: TimelineEventKind.marriage,
         title: '${a.displayName} and ${b.displayName} married',
+        detail: joining,
         entityId: r.id,
         year: r.marriageYear,
         yearLabel: r.marriageYearRaw,

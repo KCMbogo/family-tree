@@ -402,6 +402,30 @@ class FamilyTreeRepository {
         .toSet();
   }
 
+  /// Sets or clears the year a couple married.
+  ///
+  /// Like every other fact, this is a new claim rather than a field write, so
+  /// correcting a half-remembered date keeps the earlier guess in the history.
+  Future<void> setMarriageYear(String relationshipId, String? year) {
+    final trimmed = year?.trim();
+
+    return recordClaims([
+      if (trimmed == null || trimmed.isEmpty)
+        buildRetraction(
+          entityId: relationshipId,
+          entityType: EntityType.relationship,
+          field: ClaimFields.marriageYear,
+        )
+      else
+        buildClaim(
+          entityId: relationshipId,
+          entityType: EntityType.relationship,
+          field: ClaimFields.marriageYear,
+          value: trimmed,
+        ),
+    ]);
+  }
+
   /// Removes a relationship by retracting it. The claims that created it stay
   /// in the log, so "this link was here and someone removed it" is still
   /// answerable — which is the whole point of the event model.

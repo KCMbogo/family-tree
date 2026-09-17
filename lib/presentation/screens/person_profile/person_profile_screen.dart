@@ -267,12 +267,40 @@ class _RelationshipsSection extends ConsumerWidget {
                     person: related,
                     subtitle: entry.detail,
                     onTap: () => context.push(Routes.person(related.id)),
-                    trailing: IconButton(
-                      tooltip: 'Remove this link',
-                      icon: const Icon(Icons.link_off, size: 20),
-                      onPressed: () => ref
-                          .read(familyTreeRepositoryProvider)
-                          .removeRelationship(entry.relationshipId),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // A wedding date is a fact about the marriage, not
+                        // about either person, so it is edited on the link.
+                        if (entry.isMarriage)
+                          IconButton(
+                            tooltip: entry.marriageYear == null
+                                ? 'Add the year they married'
+                                : 'Edit the year they married',
+                            icon: Icon(
+                              entry.marriageYear == null
+                                  ? Icons.event_outlined
+                                  : Icons.event_available_outlined,
+                              size: 20,
+                              color: entry.marriageYear == null
+                                  ? null
+                                  : theme.colorScheme.primary,
+                            ),
+                            onPressed: () => _editMarriageYear(
+                              context,
+                              ref,
+                              entry.relationshipId,
+                              entry.marriageYear,
+                            ),
+                          ),
+                        IconButton(
+                          tooltip: 'Remove this link',
+                          icon: const Icon(Icons.link_off, size: 20),
+                          onPressed: () => ref
+                              .read(familyTreeRepositoryProvider)
+                              .removeRelationship(entry.relationshipId),
+                        ),
+                      ],
                     ),
                   ),
             ],
@@ -280,6 +308,47 @@ class _RelationshipsSection extends ConsumerWidget {
         );
       },
     );
+  }
+
+  Future<void> _editMarriageYear(
+    BuildContext context,
+    WidgetRef ref,
+    String relationshipId,
+    String? current,
+  ) async {
+    final controller = TextEditingController(text: current ?? '');
+
+    final year = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Year married'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: "e.g. 1965, or 'around 1965'",
+            helperText: 'Approximate is fine. Leave empty to clear.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (year == null) return;
+
+    await ref
+        .read(familyTreeRepositoryProvider)
+        .setMarriageYear(relationshipId, year);
   }
 
   /// Turns the undirected edge list into the four groups people expect to see.
@@ -304,13 +373,18 @@ class _RelationshipsSection extends ConsumerWidget {
       final other = relationship.otherPerson(personId);
       if (other == null) continue;
 
+      final isMarriage = relationship.type == RelationshipType.spouseOf;
+
       final entry = _RelatedPerson(
         personId: other,
         relationshipId: relationship.id,
-        detail: relationship.type == RelationshipType.spouseOf &&
-                relationship.marriageYearRaw != null
-            ? 'Married ${relationship.marriageYearRaw}'
-            : null,
+        isMarriage: isMarriage,
+        marriageYear: relationship.marriageYearRaw,
+        detail: !isMarriage
+            ? null
+            : relationship.marriageYearRaw != null
+                ? 'Married ${relationship.marriageYearRaw}'
+                : 'Year married not recorded',
       );
 
       switch (relationship.type!) {
@@ -338,9 +412,15 @@ class _RelatedPerson {
     required this.personId,
     required this.relationshipId,
     this.detail,
+    this.isMarriage = false,
+    this.marriageYear,
   });
 
   final String personId;
   final String relationshipId;
   final String? detail;
+
+  /// Spouse links carry an editable wedding date.
+  final bool isMarriage;
+  final String? marriageYear;
 }
