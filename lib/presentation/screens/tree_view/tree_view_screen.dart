@@ -4,10 +4,14 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../domain/models/tree_style.dart';
 import '../../../domain/services/tree_layout.dart';
 import '../../../providers/tree_providers.dart';
+import '../../../providers/tree_style_provider.dart';
 import '../../widgets/async_view.dart';
 import '../../widgets/person_card.dart';
+import '../../widgets/portrait_card.dart';
+import 'organic_tree_painter.dart';
 import 'tree_connector_painter.dart';
 
 /// Feature §6.4 — the tree itself.
@@ -22,11 +26,17 @@ class TreeViewScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tree = ref.watch(primaryTreeProvider).value;
+    final style = ref.watch(treeStyleProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(tree?.name ?? 'Family tree'),
         actions: [
+          IconButton(
+            tooltip: 'Tree style',
+            icon: const Icon(Icons.palette_outlined),
+            onPressed: () => _showStylePicker(context, ref, style),
+          ),
           IconButton(
             tooltip: 'People',
             icon: const Icon(Icons.list_alt_outlined),
@@ -55,7 +65,9 @@ class TreeViewScreen extends ConsumerWidget {
               )
             : Stack(
                 children: [
-                  Positioned.fill(child: _TreeCanvas(layout: layout)),
+                  Positioned.fill(
+                    child: _TreeCanvas(layout: layout, style: style),
+                  ),
                   if (_needsConnecting(layout))
                     Positioned(
                       left: 16,
@@ -73,6 +85,57 @@ class TreeViewScreen extends ConsumerWidget {
   /// screen look like a list instead of a tree.
   static bool _needsConnecting(TreeLayout layout) =>
       layout.nodes.length >= 2 && layout.edges.isEmpty;
+
+  void _showStylePicker(
+    BuildContext context,
+    WidgetRef ref,
+    TreeStyle current,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        // Scrollable: three descriptions plus the drag handle can exceed the
+        // sheet's share of a short screen, and a fixed Column would clip.
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'Tree style',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
+                ),
+              ),
+              RadioGroup<TreeStyle>(
+                groupValue: current,
+                onChanged: (chosen) {
+                  Navigator.pop(sheetContext);
+                  if (chosen != null) {
+                    ref.read(treeStyleProvider.notifier).select(chosen);
+                  }
+                },
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final style in TreeStyle.values)
+                      RadioListTile<TreeStyle>(
+                        value: style,
+                        title: Text(style.label),
+                        subtitle: Text(style.description),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   void _showPeopleList(BuildContext context, WidgetRef ref) {
     showModalBottomSheet<void>(
@@ -151,9 +214,10 @@ class _ConnectPrompt extends StatelessWidget {
 }
 
 class _TreeCanvas extends StatefulWidget {
-  const _TreeCanvas({required this.layout});
+  const _TreeCanvas({required this.layout, required this.style});
 
   final TreeLayout layout;
+  final TreeStyle style;
 
   @override
   State<_TreeCanvas> createState() => _TreeCanvasState();
@@ -169,22 +233,39 @@ class _TreeCanvasState extends State<_TreeCanvas> {
     super.dispose();
   }
 
+  TreeMetrics get _metrics => switch (widget.style) {
+        TreeStyle.chart => TreeMetrics.chart,
+        TreeStyle.organic => TreeMetrics.organic,
+        TreeStyle.portrait => TreeMetrics.portrait,
+      };
+
+  @override
+  void didUpdateWidget(_TreeCanvas old) {
+    super.didUpdateWidget(old);
+    // Switching style changes the canvas size, so re-frame it rather than
+    // leaving the view scrolled to a position that no longer means anything.
+    if (old.style != widget.style) _framed = false;
+  }
+
   /// Slot space (x in card pitches, generation row) to canvas pixels, at the
   /// centre of the card.
-  Offset _toOffset(double x, int generation) => Offset(
-        TreeMetrics.canvasPadding + x * TreeMetrics.columnPitch,
-        TreeMetrics.canvasPadding +
-            generation * TreeMetrics.rowPitch +
-            TreeMetrics.cardHeight / 2,
-      );
+  Offset _toOffset(double x, int generation) {
+    final m = _metrics;
+    return Offset(
+      m.canvasPadding + x * m.columnPitch,
+      m.canvasPadding + generation * m.rowPitch + m.cardHeight / 2,
+    );
+  }
 
-  Size get _canvasSize => Size(
-        widget.layout.width * TreeMetrics.columnPitch +
-            TreeMetrics.canvasPadding * 2,
-        widget.layout.generationCount * TreeMetrics.rowPitch -
-            TreeMetrics.rowGap +
-            TreeMetrics.canvasPadding * 2,
-      );
+  Size get _canvasSize {
+    final m = _metrics;
+    return Size(
+      widget.layout.width * m.columnPitch + m.canvasPadding * 2,
+      widget.layout.generationCount * m.rowPitch -
+          m.rowGap +
+          m.canvasPadding * 2,
+    );
+  }
 
   /// Scales and centres the whole chart on first build, so a wide tree opens
   /// readable instead of scrolled off to one side.
@@ -204,10 +285,48 @@ class _TreeCanvasState extends State<_TreeCanvas> {
       ..scaleByDouble(scale, scale, scale, 1);
   }
 
+  CustomPainter _painterFor(ColorScheme scheme) => switch (widget.style) {
+        TreeStyle.organic => OrganicTreePainter(
+            layout: widget.layout,
+            toOffset: _toOffset,
+            cardSize: _metrics.cardSize,
+            branchColor: scheme.primary.withValues(alpha: 0.55),
+            coupleColor: scheme.tertiary,
+          ),
+        TreeStyle.chart || TreeStyle.portrait => TreeConnectorPainter(
+            layout: widget.layout,
+            toOffset: _toOffset,
+            cardSize: _metrics.cardSize,
+            lineColor: scheme.outline,
+            coupleColor: scheme.primary,
+          ),
+      };
+
+  Widget _cardFor(TreeNode node) {
+    final m = _metrics;
+    void open() => context.push(Routes.person(node.id));
+
+    return switch (widget.style) {
+      TreeStyle.portrait => PortraitCard(
+          person: node.person,
+          width: m.cardWidth,
+          height: m.cardHeight,
+          onTap: open,
+        ),
+      TreeStyle.chart || TreeStyle.organic => PersonCard(
+          person: node.person,
+          width: m.cardWidth,
+          height: m.cardHeight,
+          onTap: open,
+        ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final canvas = _canvasSize;
+    final m = _metrics;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -230,31 +349,15 @@ class _TreeCanvasState extends State<_TreeCanvas> {
             child: Stack(
               children: [
                 Positioned.fill(
-                  child: CustomPaint(
-                    painter: TreeConnectorPainter(
-                      layout: widget.layout,
-                      toOffset: _toOffset,
-                      cardSize: const Size(
-                        TreeMetrics.cardWidth,
-                        TreeMetrics.cardHeight,
-                      ),
-                      lineColor: scheme.outline,
-                      coupleColor: scheme.primary,
-                    ),
-                  ),
+                  child: CustomPaint(painter: _painterFor(scheme)),
                 ),
                 for (final node in widget.layout.nodes)
                   Positioned(
                     left: _toOffset(node.x, node.generation).dx -
-                        TreeMetrics.cardWidth / 2,
+                        m.cardWidth / 2,
                     top: _toOffset(node.x, node.generation).dy -
-                        TreeMetrics.cardHeight / 2,
-                    child: PersonCard(
-                      person: node.person,
-                      width: TreeMetrics.cardWidth,
-                      height: TreeMetrics.cardHeight,
-                      onTap: () => context.push(Routes.person(node.id)),
-                    ),
+                        m.cardHeight / 2,
+                    child: _cardFor(node),
                   ),
               ],
             ),

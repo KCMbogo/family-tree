@@ -101,6 +101,22 @@ two parents, which is the single most recognisable feature of a family tree —
 that was the original bug, and `test/domain/tree_layout_test.dart` now pins the
 centring, ordering and no-overlap properties.
 
+## Tree styles
+
+The tree can be drawn three ways, chosen from the palette icon and remembered
+across restarts:
+
+- **Chart** — the classic genealogy chart with square connectors;
+- **Tree** — curved branches that taper as they rise, so a family reads as
+  something grown rather than wired;
+- **Portraits** — large photo-first cards, for a family with pictures.
+
+All three render the same `TreeLayout`. A style supplies its own `TreeMetrics`
+(portraits need taller cards, branches need deeper rows) and its own painter,
+but never its own layout — so two styles can never disagree about who belongs
+where. `test/presentation/tree_style_test.dart` renders the same family in
+every style and asserts the generations and centring hold in each.
+
 ## The timeline
 
 The timeline is written for someone reading it years from now, who will not
@@ -163,7 +179,7 @@ Conflict handling needs no new code path: remote claims fold by the same
 flutter test
 ```
 
-118 tests. The ones that matter most:
+121 tests. The ones that matter most:
 
 - `test/data/event_sourcing_test.dart` and `test/domain/claim_projector_test.dart`
   pin the behaviour the whole trust model depends on: two conflicting claims

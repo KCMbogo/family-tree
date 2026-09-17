@@ -79,15 +79,50 @@ abstract final class AppTheme {
   }
 }
 
-/// Spacing and sizing constants shared by the tree canvas and its painter, so
-/// the cards and the lines between them can never drift apart.
-abstract final class TreeMetrics {
-  static const double cardWidth = 152;
-  static const double cardHeight = 96;
-  static const double columnGap = 24;
-  static const double rowGap = 72;
-  static const double canvasPadding = 48;
+/// Spacing and sizing for the tree canvas.
+///
+/// The canvas and its painters share one instance, so cards and the lines
+/// between them can never drift apart. Each tree style supplies its own
+/// metrics — portraits need taller cards, the organic style needs more room
+/// between generations for its branches to curve.
+class TreeMetrics {
+  const TreeMetrics({
+    required this.cardWidth,
+    required this.cardHeight,
+    required this.columnGap,
+    required this.rowGap,
+    this.canvasPadding = 48,
+  });
 
-  static double get rowPitch => cardHeight + rowGap;
-  static double get columnPitch => cardWidth + columnGap;
+  static const TreeMetrics chart = TreeMetrics(
+    cardWidth: 152,
+    cardHeight: 96,
+    columnGap: 24,
+    rowGap: 72,
+  );
+
+  static const TreeMetrics organic = TreeMetrics(
+    cardWidth: 148,
+    cardHeight: 88,
+    columnGap: 32,
+    rowGap: 104,
+  );
+
+  static const TreeMetrics portrait = TreeMetrics(
+    cardWidth: 132,
+    cardHeight: 168,
+    columnGap: 22,
+    rowGap: 78,
+  );
+
+  final double cardWidth;
+  final double cardHeight;
+  final double columnGap;
+  final double rowGap;
+  final double canvasPadding;
+
+  double get rowPitch => cardHeight + rowGap;
+  double get columnPitch => cardWidth + columnGap;
+
+  Size get cardSize => Size(cardWidth, cardHeight);
 }
